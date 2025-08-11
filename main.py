@@ -18,48 +18,29 @@ logging.basicConfig(
 async def check_facebook_uid_async(uid, client):
     url = f"https://www.facebook.com/profile.php?id={uid}"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"}
+    
     try:
         r = await client.get(url, headers=headers, timeout=5)
         
-        # HTTP 404 error চেক করা
+        # HTTP 404 error check
         if r.status_code == 404:
             return uid, "Dead"
         
         soup = BeautifulSoup(r.text, 'html.parser')
-
-        # মেটা ট্যাগ বা নির্দিষ্ট টেক্সট দিয়ে ডেড প্রোফাইল চেক করা
-        # এখানে og:image এর নতুন URL এবং কিছু ডেড প্রোফাইলের জন্য নির্দিষ্ট টেক্সট যোগ করা হয়েছে।
         
-        # নতুন ডিফল্ট প্রোফাইল পিকচার URL
-        default_profile_pic_urls = [
-            "https://static.xx.fbcdn.net/rsrc.php/v3/yO/r/Yp-d8W5y8v3.png",
-            "https://static.xx.fbcdn.net/rsrc.php/v3/yK/r/kH6s468L6jP.png" # একটি নতুন সম্ভাব্য ডিফল্ট URL
-        ]
-        
+        # og:image মেটা ট্যাগ খোঁজা
         og_image_tag = soup.find('meta', {'property': 'og:image'})
         
-        if og_image_tag and any(url in og_image_tag.get('content', '') for url in default_profile_pic_urls):
+        default_profile_pic_url = "https://static.xx.fbcdn.net/rsrc.php/v3/yO/r/Yp-d8W5y8v3.png"
+
+        if og_image_tag and default_profile_pic_url in og_image_tag.get('content', ''):
+            # এই URLটি একটি ডেড বা ডিফল্ট প্রোফাইল পিকচার।
             return uid, "Dead"
-        
-        # কিছু নির্দিষ্ট কিওয়ার্ড যা ডেড প্রোফাইলে দেখা যায়
-        dead_keywords = [
-            "Content not found", 
-            "The link you followed may be broken", 
-            "This content is no longer available",
-            "This Page Isn't Available"
-        ]
-        
-        if any(keyword in r.text for keyword in dead_keywords):
-            return uid, "Dead"
-        
-        # যদি উপরের কোনো শর্তই না মেলে, তবে এটি লাইভ হিসেবে ধরা হবে।
-        # এখানে আমরা og:type 'profile' দিয়েও নিশ্চিত হতে পারি।
-        og_type_tag = soup.find('meta', {'property': 'og:type'})
-        if og_type_tag and og_type_tag.get('content') == 'profile':
+        elif og_image_tag and default_profile_pic_url not in og_image_tag.get('content', ''):
             return uid, "Live"
-        
-        # সবশেষে, যদি কোনো কিছুই খুঁজে না পাওয়া যায়, এটি সম্ভবত ডেড।
-        return uid, "Dead"
+        else:
+            # যদি og:image ট্যাগ না পাওয়া যায়, তবে এটি ডেড ধরা হবে।
+            return uid, "Dead"
 
     except httpx.RequestError as e:
         logging.error(f"Error checking UID {uid}: {e}")
@@ -75,10 +56,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # UID চেক এবং আলাদা করে আউটপুট
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
-    
-    # ডুপ্লিকেট UID অপসারণ
     uids_list = [line.strip() for line in text.split("\n") if line.strip().isdigit()]
-    uids = list(dict.fromkeys(uids_list)) # ডুপ্লিকেট বাদ দিতে এই লাইনটি যোগ করা হয়েছে
+    uids = list(dict.fromkeys(uids_list))
 
     if not uids:
         await update.message.reply_text("❌ অনুগ্রহ করে শুধু UID নাম্বার পাঠান (প্রতিটি লাইনে একটি করে)।")
