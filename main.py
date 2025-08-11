@@ -72,8 +72,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             dead_list.append(uid)
         else:
             error_list.append(uid)
-        # এখানে delay .02 সেকেন্ড করা হয়েছে
-        await asyncio.sleep(0.01)
+        # এখানে delay 0 সেকেন্ড করা হয়েছে
+        # await asyncio.sleep(0)  
+        # Note: asyncio.sleep(0) does not actually pause execution; it yields control to the event loop.
 
     # আউটপুট মেসেজ তৈরি
     messages = []
@@ -107,4 +108,4 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     app.run_polling()
-    
+            
