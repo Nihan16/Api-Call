@@ -24,29 +24,21 @@ async def check_facebook_uid_async(uid, client):
         if r.status_code == 404:
             return uid, "Dead"
         
-        # HTML কন্টেন্ট থেকে ডেড প্রোফাইলের কিওয়ার্ড খোঁজা
-        # এই কিওয়ার্ডগুলো সাধারণত ডেড বা ডিফল্ট প্রোফাইলে থাকে।
-        dead_keywords = [
-            "Content not found", 
-            "The link you followed may be broken", 
-            "This content is no longer available",
-            "This Page Isn't Available"
-        ]
-        
-        for keyword in dead_keywords:
-            if keyword in r.text:
-                return uid, "Dead"
-        
-        # HTML থেকে `og:type` মেটা ট্যাগ খোঁজা
         soup = BeautifulSoup(r.text, 'html.parser')
-        og_type_tag = soup.find('meta', {'property': 'og:type'})
         
-        # যদি og:type 'profile' হয়, তবে এটি সম্ভবত লাইভ
-        if og_type_tag and og_type_tag.get('content') == 'profile':
+        # og:image মেটা ট্যাগ খোঁজা
+        og_image_tag = soup.find('meta', {'property': 'og:image'})
+        
+        default_profile_pic_url = "https://static.xx.fbcdn.net/rsrc.php/v3/yO/r/Yp-d8W5y8v3.png"
+
+        if og_image_tag and default_profile_pic_url in og_image_tag.get('content', ''):
+            # এই URLটি একটি ডেড বা ডিফল্ট প্রোফাইল পিকচার।
+            return uid, "Dead"
+        elif og_image_tag and default_profile_pic_url not in og_image_tag.get('content', ''):
             return uid, "Live"
-        
-        # যদি কোনো নির্দিষ্ট চিহ্ন খুঁজে না পাওয়া যায়, তবে এটি ডেড হিসেবে ধরা হবে
-        return uid, "Dead"
+        else:
+            # যদি og:image ট্যাগ না পাওয়া যায়, তবে এটি ডেড ধরা হবে।
+            return uid, "Dead"
 
     except httpx.RequestError as e:
         logging.error(f"Error checking UID {uid}: {e}")
@@ -176,4 +168,4 @@ if __name__ == "__main__":
     app.add_handler(CallbackQueryHandler(refresh_uids))
 
     app.run_polling()
-        
+    
