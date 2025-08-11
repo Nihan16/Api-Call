@@ -5,7 +5,6 @@ import json
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters, CallbackQueryHandler
 from bs4 import BeautifulSoup
-from concurrent.futures import ThreadPoolExecutor
 
 # আপনার বট টোকেন বসান
 BOT_TOKEN = "8386739525:AAGkPaoULHOtrWLUYotmYRpzDjodz0jwV6M"
@@ -15,11 +14,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# থ্রেড পুল ইনিশিয়ালাইজ করা
-# এটি UID চেকিং দ্রুত করবে
-executor = ThreadPoolExecutor(max_workers=15)
-
-# Facebook UID চেক ফাংশন (আপডেট করা)
+# Facebook UID চেক ফাংশন
 def check_facebook_uid(uid):
     url = f"https://www.facebook.com/profile.php?id={uid}"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"}
@@ -31,7 +26,6 @@ def check_facebook_uid(uid):
         
         soup = BeautifulSoup(r.text, 'html.parser')
         
-        # আরও নির্ভরযোগ্য চেক: 'og:type' ট্যাগ 'profile' কিনা দেখা
         og_type_tag = soup.find('meta', {'property': 'og:type'})
         og_image_tag = soup.find('meta', {'property': 'og:image'})
         
@@ -70,20 +64,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     dead_list = []
     error_list = []
 
-    # থ্রেড পুল ব্যবহার করে UID গুলো সমান্তরালে চেক করা
-    loop = asyncio.get_event_loop()
-    futures = [loop.run_in_executor(executor, check_facebook_uid, uid) for uid in uids]
-    
-    results = await asyncio.gather(*futures)
-
-    for uid, status in zip(uids, results):
+    # এখানে একটি একটি করে UID চেক করা হচ্ছে
+    for uid in uids:
+        status = check_facebook_uid(uid)
         if status == "Live":
             live_list.append(uid)
         elif status == "Dead":
             dead_list.append(uid)
         else:
             error_list.append(uid)
-    
+        await asyncio.sleep(0.01) # 0.01 সেকেন্ডের ডিলে যোগ করা হয়েছে
+
     messages = []
     
     if live_list:
@@ -129,15 +120,14 @@ async def button_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         newly_dead_uids = []
         newly_live_uids = []
 
-        loop = asyncio.get_event_loop()
-        futures = [loop.run_in_executor(executor, check_facebook_uid, uid) for uid in uids]
-        results = await asyncio.gather(*futures)
-
-        for uid, status in zip(uids, results):
+        # এখানেও একটি একটি করে UID চেক করা হচ্ছে
+        for uid in uids:
+            status = check_facebook_uid(uid)
             if status == "Dead":
                 newly_dead_uids.append(uid)
             else:
                 newly_live_uids.append(uid)
+            await asyncio.sleep(0.01) # 0.01 সেকেন্ডের ডিলে
 
         response_message = ""
         if newly_dead_uids:
@@ -167,4 +157,4 @@ if __name__ == "__main__":
     app.add_handler(CallbackQueryHandler(button_callback_handler))
 
     app.run_polling()
-    
+        
