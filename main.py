@@ -1,6 +1,6 @@
 import logging
+import requests
 import asyncio
-import httpx
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters, CallbackQueryHandler
 from bs4 import BeautifulSoup
@@ -14,39 +14,34 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# Facebook UID চেক ফাংশন (অ্যাসিঙ্ক্রোনাস)
-async def check_facebook_uid_async(uid, client):
+# Facebook UID চেক ফাংশন
+def check_facebook_uid(uid):
     url = f"https://www.facebook.com/profile.php?id={uid}"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"}
     try:
-        r = await client.get(url, headers=headers, timeout=5)
+        r = requests.get(url, headers=headers, timeout=5)
         
+        # HTTP 404 error check
         if r.status_code == 404:
-            return uid, "Dead"
+            return "Dead"
         
         soup = BeautifulSoup(r.text, 'html.parser')
         
-        # Check for specific meta tags that indicate a live profile
-        og_type_tag = soup.find('meta', {'property': 'og:type'})
         og_image_tag = soup.find('meta', {'property': 'og:image'})
         
-        # If og:type is not 'profile', it's likely a dead/default page
-        if og_type_tag and og_type_tag['content'] != 'profile':
-            return uid, "Dead"
+        if og_image_tag and "https://static.xx.fbcdn.net/rsrc.php/v3/yO/r/Yp-d8W5y8v3.png" in og_image_tag['content']:
+            return "Dead"
+        elif og_image_tag and "https://static.xx.fbcdn.net/rsrc.php/v3/yO/r/Yp-d8W5y8v3.png" not in og_image_tag['content']:
+            return "Live"
+        else:
+            return "Dead"
 
-        # Check for default profile picture URLs
-        if og_image_tag and "static.xx.fbcdn.net" in og_image_tag['content']:
-            return uid, "Dead"
-            
-        # If none of the above conditions met, it's a live profile
-        return uid, "Live"
-
-    except httpx.RequestError as e:
+    except requests.exceptions.RequestException as e:
         logging.error(f"Error checking UID {uid}: {e}")
-        return uid, "Error"
+        return "Error"
     except Exception as e:
         logging.error(f"An unexpected error occurred for UID {uid}: {e}")
-        return uid, "Error"
+        return "Error"
 
 # /start কমান্ড
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -61,30 +56,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ অনুগ্রহ করে শুধু UID নাম্বার পাঠান (প্রতিটি লাইনে একটি করে)।")
         return
 
+    live_list = []
+    dead_list = []
+    error_list = []
+
     await update.message.reply_text(f"⏳ {len(uids)}টি UID চেকিং শুরু হয়েছে... দয়া করে অপেক্ষা করুন।")
-    
-    context.user_data['live_uids'] = []
-    live_list, dead_list, error_list = [], [], []
-    
+
     start_time = time.time()
     
-    async with httpx.AsyncClient() as client:
-        tasks = [check_facebook_uid_async(uid, client) for uid in uids]
-        results = await asyncio.gather(*tasks)
-
-    for uid, status in results:
+    for uid in uids:
+        status = check_facebook_uid(uid)
         if status == "Live":
             live_list.append(uid)
         elif status == "Dead":
             dead_list.append(uid)
         else:
             error_list.append(uid)
-            
+        await asyncio.sleep(0.01) # দ্রুত রেসপন্সের জন্য 0.01 সেকেন্ড ডিলে
+    
     end_time = time.time()
     total_time = end_time - start_time
     
     context.user_data['live_uids'] = live_list
 
+    # আউটপুট মেসেজ তৈরি
     messages = []
     if live_list:
         live_text = "✅ **Live UIDs:**\n" + "\n".join(live_list)
@@ -98,10 +93,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         error_text = "⚠️ **Error UIDs:**\n" + "\n".join(error_list)
         messages.append(error_text)
 
+    # যদি কোনো ফলাফল না থাকে
     if not messages:
         await update.message.reply_text("কোনো UID পাওয়া যায়নি বা সবগুলোতে সমস্যা হয়েছে।")
         return
 
+    # ব্যাচে পাঠানো
     for msg in messages:
         if len(msg) > 4096:
             parts = [msg[i:i+4096] for i in range(0, len(msg), 4096)]
@@ -110,6 +107,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text(msg, parse_mode="Markdown")
     
+    # লাইভ UID এর নিচে রিফ্রেশ বাটন যোগ করা
     if live_list:
         refresh_button = [[InlineKeyboardButton("Refresh Live UIDs", callback_data="refresh")]]
         reply_markup = InlineKeyboardMarkup(refresh_button)
@@ -133,16 +131,14 @@ async def refresh_uids(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     start_time = time.time()
 
-    async with httpx.AsyncClient() as client:
-        tasks = [check_facebook_uid_async(uid, client) for uid in live_uids_to_check]
-        results = await asyncio.gather(*tasks)
-
-    for uid, status in results:
+    for uid in live_uids_to_check:
+        status = check_facebook_uid(uid)
         if status == "Dead":
             newly_dead_uids.append(uid)
         else:
             current_live_uids.append(uid)
-            
+        await asyncio.sleep(0.01) # দ্রুত রেসপন্সের জন্য 0.01 সেকেন্ড ডিলে
+    
     end_time = time.time()
     total_time = end_time - start_time
     
@@ -169,4 +165,4 @@ if __name__ == "__main__":
     app.add_handler(CallbackQueryHandler(refresh_uids))
 
     app.run_polling()
-            
+    
