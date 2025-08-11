@@ -25,14 +25,21 @@ async def check_facebook_uid_async(uid, client):
             return uid, "Dead"
         
         soup = BeautifulSoup(r.text, 'html.parser')
+        
+        # Check for specific meta tags that indicate a live profile
+        og_type_tag = soup.find('meta', {'property': 'og:type'})
         og_image_tag = soup.find('meta', {'property': 'og:image'})
         
-        if og_image_tag and "https://static.xx.fbcdn.net/rsrc.php/v3/yO/r/Yp-d8W5y8v3.png" in og_image_tag['content']:
+        # If og:type is not 'profile', it's likely a dead/default page
+        if og_type_tag and og_type_tag['content'] != 'profile':
             return uid, "Dead"
-        elif og_image_tag and "https://static.xx.fbcdn.net/rsrc.php/v3/yO/r/Yp-d8W5y8v3.png" not in og_image_tag['content']:
-            return uid, "Live"
-        else:
+
+        # Check for default profile picture URLs
+        if og_image_tag and "static.xx.fbcdn.net" in og_image_tag['content']:
             return uid, "Dead"
+            
+        # If none of the above conditions met, it's a live profile
+        return uid, "Live"
 
     except httpx.RequestError as e:
         logging.error(f"Error checking UID {uid}: {e}")
@@ -119,7 +126,7 @@ async def refresh_uids(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("আগের কোনো লাইভ UID পাওয়া যায়নি। নতুন করে তালিকা পাঠান।")
         return
 
-    await query.edit_message_text(f"⏳ {len(live_uids_to_check)}টি লাইভ UID পুনরায় চেকিং শুরু হয়েছে...")
+    await query.edit_message_text(f"⏳ {len(live_uids_to_check)}টি লাইভ UID পুনরায় চেকিং শুরু হয়েছে...", parse_mode="Markdown")
 
     newly_dead_uids = []
     current_live_uids = []
@@ -148,7 +155,10 @@ async def refresh_uids(update: Update, context: ContextTypes.DEFAULT_TYPE):
     output_message += f"বর্তমানে **{len(current_live_uids)}**টি UID লাইভ আছে।\n"
     output_message += f"রিফ্রেশ করতে মোট সময় লেগেছে: **{total_time:.2f}** সেকেন্ড।"
 
-    await query.edit_message_text(output_message, parse_mode="Markdown")
+    refresh_button = [[InlineKeyboardButton("Refresh Live UIDs", callback_data="refresh")]]
+    reply_markup = InlineKeyboardMarkup(refresh_button)
+
+    await query.edit_message_text(output_message, parse_mode="Markdown", reply_markup=reply_markup)
 
 # বট চালানো
 if __name__ == "__main__":
@@ -159,3 +169,4 @@ if __name__ == "__main__":
     app.add_handler(CallbackQueryHandler(refresh_uids))
 
     app.run_polling()
+            
