@@ -1,10 +1,10 @@
 import logging
-import requests
 import asyncio
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+import httpx
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters, CallbackQueryHandler
 from bs4 import BeautifulSoup
-from concurrent.futures import ThreadPoolExecutor
+import time
 
 # আপনার বট টোকেন বসান
 BOT_TOKEN = "8386739525:AAGkPaoULHOtrWLUYotmYRpzDjodz0jwV6M"
@@ -14,36 +14,32 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# থ্রেড পুল ইনিশিয়ালাইজ করা
-executor = ThreadPoolExecutor(max_workers=10) # 10টি থ্রেড দিয়ে একবারে 10টি UID চেক করা হবে
-
-# Facebook UID চেক ফাংশন (আপডেট করা)
-def check_facebook_uid(uid):
+# Facebook UID চেক ফাংশন (অ্যাসিঙ্ক্রোনাস)
+async def check_facebook_uid_async(uid, client):
     url = f"https://www.facebook.com/profile.php?id={uid}"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"}
     try:
-        r = requests.get(url, headers=headers, timeout=5)
+        r = await client.get(url, headers=headers, timeout=5)
         
         if r.status_code == 404:
-            return "Dead"
+            return uid, "Dead"
         
         soup = BeautifulSoup(r.text, 'html.parser')
-        
         og_image_tag = soup.find('meta', {'property': 'og:image'})
         
         if og_image_tag and "https://static.xx.fbcdn.net/rsrc.php/v3/yO/r/Yp-d8W5y8v3.png" in og_image_tag['content']:
-            return "Dead"
+            return uid, "Dead"
         elif og_image_tag and "https://static.xx.fbcdn.net/rsrc.php/v3/yO/r/Yp-d8W5y8v3.png" not in og_image_tag['content']:
-            return "Live"
+            return uid, "Live"
         else:
-            return "Dead"
+            return uid, "Dead"
 
-    except requests.exceptions.RequestException as e:
+    except httpx.RequestError as e:
         logging.error(f"Error checking UID {uid}: {e}")
-        return "Error"
+        return uid, "Error"
     except Exception as e:
         logging.error(f"An unexpected error occurred for UID {uid}: {e}")
-        return "Error"
+        return uid, "Error"
 
 # /start কমান্ড
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -59,35 +55,41 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     await update.message.reply_text(f"⏳ {len(uids)}টি UID চেকিং শুরু হয়েছে... দয়া করে অপেক্ষা করুন।")
-
-    live_list = []
-    dead_list = []
-    error_list = []
-
-    # মাল্টি-থ্রেডিং ব্যবহার করে UID চেক করা
-    loop = asyncio.get_event_loop()
-    futures = [loop.run_in_executor(executor, check_facebook_uid, uid) for uid in uids]
     
-    # সকল UID চেক শেষ হওয়া পর্যন্ত অপেক্ষা করা
-    results = await asyncio.gather(*futures)
+    context.user_data['live_uids'] = []
+    live_list, dead_list, error_list = [], [], []
+    
+    start_time = time.time()
+    
+    async with httpx.AsyncClient() as client:
+        tasks = [check_facebook_uid_async(uid, client) for uid in uids]
+        results = await asyncio.gather(*tasks)
 
-    for uid, status in zip(uids, results):
+    for uid, status in results:
         if status == "Live":
             live_list.append(uid)
         elif status == "Dead":
             dead_list.append(uid)
         else:
             error_list.append(uid)
+            
+    end_time = time.time()
+    total_time = end_time - start_time
     
-    # আউটপুট মেসেজ তৈরি
+    context.user_data['live_uids'] = live_list
+
     messages = []
-    
     if live_list:
-        messages.append("✅ **Live UIDs:**\n" + "\n".join(live_list))
+        live_text = "✅ **Live UIDs:**\n" + "\n".join(live_list)
+        messages.append(live_text)
+    
     if dead_list:
-        messages.append("❌ **Dead UIDs:**\n" + "\n".join(dead_list))
+        dead_text = "❌ **Dead UIDs:**\n" + "`" + "`\n`".join(dead_list) + "`"
+        messages.append(dead_text)
+
     if error_list:
-        messages.append("⚠️ **Error UIDs:**\n" + "\n".join(error_list))
+        error_text = "⚠️ **Error UIDs:**\n" + "\n".join(error_list)
+        messages.append(error_text)
 
     if not messages:
         await update.message.reply_text("কোনো UID পাওয়া যায়নি বা সবগুলোতে সমস্যা হয়েছে।")
@@ -100,6 +102,53 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(p, parse_mode="Markdown")
         else:
             await update.message.reply_text(msg, parse_mode="Markdown")
+    
+    if live_list:
+        refresh_button = [[InlineKeyboardButton("Refresh Live UIDs", callback_data="refresh")]]
+        reply_markup = InlineKeyboardMarkup(refresh_button)
+        await update.message.reply_text(f"চেক করতে মোট সময় লেগেছে: **{total_time:.2f}** সেকেন্ড।\n", reply_markup=reply_markup, parse_mode="Markdown")
+
+# রিফ্রেশ বাটনে ক্লিক করলে
+async def refresh_uids(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    live_uids_to_check = context.user_data.get('live_uids', [])
+
+    if not live_uids_to_check:
+        await query.edit_message_text("আগের কোনো লাইভ UID পাওয়া যায়নি। নতুন করে তালিকা পাঠান।")
+        return
+
+    await query.edit_message_text(f"⏳ {len(live_uids_to_check)}টি লাইভ UID পুনরায় চেকিং শুরু হয়েছে...")
+
+    newly_dead_uids = []
+    current_live_uids = []
+
+    start_time = time.time()
+
+    async with httpx.AsyncClient() as client:
+        tasks = [check_facebook_uid_async(uid, client) for uid in live_uids_to_check]
+        results = await asyncio.gather(*tasks)
+
+    for uid, status in results:
+        if status == "Dead":
+            newly_dead_uids.append(uid)
+        else:
+            current_live_uids.append(uid)
+            
+    end_time = time.time()
+    total_time = end_time - start_time
+    
+    context.user_data['live_uids'] = current_live_uids
+
+    output_message = ""
+    if newly_dead_uids:
+        output_message += "⚠️ **নতুন করে ডেড হওয়া UID-গুলো:**\n" + "`" + "`\n`".join(newly_dead_uids) + "`" + "\n\n"
+    
+    output_message += f"বর্তমানে **{len(current_live_uids)}**টি UID লাইভ আছে।\n"
+    output_message += f"রিফ্রেশ করতে মোট সময় লেগেছে: **{total_time:.2f}** সেকেন্ড।"
+
+    await query.edit_message_text(output_message, parse_mode="Markdown")
 
 # বট চালানো
 if __name__ == "__main__":
@@ -107,6 +156,7 @@ if __name__ == "__main__":
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(CallbackQueryHandler(refresh_uids))
 
     app.run_polling()
-    
+            
