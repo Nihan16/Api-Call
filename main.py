@@ -73,7 +73,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             error_list.append(uid)
         # এখানে delay .02 সেকেন্ড করা হয়েছে
-        await asyncio.sleep(0.0030)
+        await asyncio.sleep(0.01)
 
     # আউটপুট মেসেজ তৈরি
     messages = []
