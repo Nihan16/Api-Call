@@ -28,19 +28,40 @@ async def check_facebook_uid_async(uid, client):
         
         soup = BeautifulSoup(r.text, 'html.parser')
         
-        # og:image মেটা ট্যাগ খোঁজা
-        og_image_tag = soup.find('meta', {'property': 'og:image'})
+        # HTML কন্টেন্টে ডেড প্রোফাইলের কিওয়ার্ড খোঁজা
+        # এই কিওয়ার্ডগুলো সাধারণত ডেড বা ডিফল্ট প্রোফাইলে থাকে।
+        dead_keywords = [
+            "Content not found", 
+            "The link you followed may be broken", 
+            "This content is no longer available",
+            "This Page Isn't Available"
+        ]
         
+        for keyword in dead_keywords:
+            if keyword in r.text:
+                return uid, "Dead"
+
+        # og:image ট্যাগ দিয়ে ডেড প্রোফাইল চেক করা
+        og_image_tag = soup.find('meta', {'property': 'og:image'})
+        # এই URLটি একটি ডেড বা ডিফল্ট প্রোফাইল পিকচার।
         default_profile_pic_url = "https://static.xx.fbcdn.net/rsrc.php/v3/yO/r/Yp-d8W5y8v3.png"
 
         if og_image_tag and default_profile_pic_url in og_image_tag.get('content', ''):
-            # এই URLটি একটি ডেড বা ডিফল্ট প্রোফাইল পিকচার।
             return uid, "Dead"
-        elif og_image_tag and default_profile_pic_url not in og_image_tag.get('content', ''):
+        
+        # og:title ট্যাগ দিয়েও ডেড প্রোফাইল চেক করা যেতে পারে
+        og_title_tag = soup.find('meta', {'property': 'og:title'})
+        if og_title_tag and og_title_tag.get('content') == "Meta":
+            return uid, "Dead"
+
+        # যদি উপরের কোনো শর্তই না মেলে, তবে এটি লাইভ হিসেবে ধরা হবে।
+        # এখানে আমরা og:type 'profile' দিয়েও নিশ্চিত হতে পারি।
+        og_type_tag = soup.find('meta', {'property': 'og:type'})
+        if og_type_tag and og_type_tag.get('content') == 'profile':
             return uid, "Live"
-        else:
-            # যদি og:image ট্যাগ না পাওয়া যায়, তবে এটি ডেড ধরা হবে।
-            return uid, "Dead"
+        
+        # সবশেষে, যদি কোনো কিছুই খুঁজে না পাওয়া যায়, এটি সম্ভবত ডেড।
+        return uid, "Dead"
 
     except httpx.RequestError as e:
         logging.error(f"Error checking UID {uid}: {e}")
@@ -171,4 +192,3 @@ if __name__ == "__main__":
     app.add_handler(CallbackQueryHandler(refresh_uids))
 
     app.run_polling()
-    
