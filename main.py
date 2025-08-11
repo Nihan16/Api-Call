@@ -20,7 +20,7 @@ async def check_facebook_uid_async(uid, client):
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"}
     
     try:
-        r = await client.get(url, headers=headers, timeout=5)
+        r = await client.get(url, headers=headers, timeout=10) # Timeout বাড়িয়ে 10 সেকেন্ড করা হয়েছে
         
         # HTTP 404 error check
         if r.status_code == 404:
@@ -28,39 +28,63 @@ async def check_facebook_uid_async(uid, client):
         
         soup = BeautifulSoup(r.text, 'html.parser')
         
-        # HTML কন্টেন্টে ডেড প্রোফাইলের কিওয়ার্ড খোঁজা
-        # এই কিওয়ার্ডগুলো সাধারণত ডেড বা ডিফল্ট প্রোফাইলে থাকে।
+        # --- সমন্বিত চেকিং লজিক ---
+        
+        # 1. HTML কন্টেন্টে ডেড প্রোফাইলের কিওয়ার্ড খোঁজা
         dead_keywords = [
             "Content not found", 
             "The link you followed may be broken", 
             "This content is no longer available",
-            "This Page Isn't Available"
+            "This Page Isn't Available",
+            "Page not found"
         ]
         
-        for keyword in dead_keywords:
-            if keyword in r.text:
-                return uid, "Dead"
-
-        # og:image ট্যাগ দিয়ে ডেড প্রোফাইল চেক করা
-        og_image_tag = soup.find('meta', {'property': 'og:image'})
-        # এই URLটি একটি ডেড বা ডিফল্ট প্রোফাইল পিকচার।
-        default_profile_pic_url = "https://static.xx.fbcdn.net/rsrc.php/v3/yO/r/Yp-d8W5y8v3.png"
-
-        if og_image_tag and default_profile_pic_url in og_image_tag.get('content', ''):
+        if any(keyword in r.text for keyword in dead_keywords):
             return uid, "Dead"
         
-        # og:title ট্যাগ দিয়েও ডেড প্রোফাইল চেক করা যেতে পারে
-        og_title_tag = soup.find('meta', {'property': 'og:title'})
-        if og_title_tag and og_title_tag.get('content') == "Meta":
+        # 2. টাইটেল ট্যাগ চেক করা
+        title_tag = soup.find('title')
+        if title_tag:
+            title_text = title_tag.get_text(strip=True)
+            # যদি টাইটেল খুব সাধারণ হয় (যেমন: "Facebook" বা "Meta")
+            if title_text in ["Facebook", "Meta"]:
+                return uid, "Dead"
+        
+        # 3. og:image ট্যাগ দিয়ে ডেড প্রোফাইল চেক করা
+        og_image_tag = soup.find('meta', {'property': 'og:image'})
+        default_profile_pic_urls = [
+            "https://static.xx.fbcdn.net/rsrc.php/v3/yO/r/Yp-d8W5y8v3.png",
+            "https://static.xx.fbcdn.net/rsrc.php/v3/yK/r/kH6s468L6jP.png",
+            "https://static.xx.fbcdn.net/rsrc.php/v3/yp/r/s8yL9x2w855.png",
+            "https://static.xx.fbcdn.net/rsrc.php/v3/yD/r/t-1-3Lq6t9L.png"
+        ]
+        if og_image_tag and any(url in og_image_tag.get('content', '') for url in default_profile_pic_urls):
             return uid, "Dead"
 
-        # যদি উপরের কোনো শর্তই না মেলে, তবে এটি লাইভ হিসেবে ধরা হবে।
-        # এখানে আমরা og:type 'profile' দিয়েও নিশ্চিত হতে পারি।
+        # 4. og:title ট্যাগ দিয়ে ডেড প্রোফাইল চেক করা
+        og_title_tag = soup.find('meta', {'property': 'og:title'})
+        if og_title_tag and og_title_tag.get('content', '').strip() in ["Meta", "Facebook"]:
+            return uid, "Dead"
+        
+        # 5. og:type ট্যাগ দিয়ে লাইভ প্রোফাইল নিশ্চিত করা
         og_type_tag = soup.find('meta', {'property': 'og:type'})
-        if og_type_tag and og_type_tag.get('content') == 'profile':
+        if og_type_tag and og_type_tag.get('content', '') == 'profile':
             return uid, "Live"
         
-        # সবশেষে, যদি কোনো কিছুই খুঁজে না পাওয়া যায়, এটি সম্ভবত ডেড।
+        # 6. প্রোফাইল নেম চেক করা
+        # একটি লাইভ প্রোফাইলে সাধারণত একটি H1 ট্যাগ থাকে, যা প্রোফাইল ব্যবহারকারীর নাম ধারণ করে।
+        h1_tag = soup.find('h1')
+        if h1_tag and h1_tag.get_text(strip=True):
+            return uid, "Live"
+
+        # 7. প্রোফাইল নেভিগেশন লিংক চেক করা
+        # লাইভ প্রোফাইলের পেজে সাধারণত কিছু নির্দিষ্ট নেভিগেশন লিংক থাকে।
+        profile_nav_links = soup.find_all('a', {'role': 'tab'})
+        if len(profile_nav_links) > 1:
+            # যদি একাধিক নেভিগেশন ট্যাব থাকে, তাহলে এটি লাইভ হওয়ার সম্ভাবনা বেশি।
+            return uid, "Live"
+
+        # যদি উপরের কোনো শর্তই না মেলে, তবে এটি ডেড হিসেবে ধরা হবে।
         return uid, "Dead"
 
     except httpx.RequestError as e:
@@ -192,3 +216,4 @@ if __name__ == "__main__":
     app.add_handler(CallbackQueryHandler(refresh_uids))
 
     app.run_polling()
+        
