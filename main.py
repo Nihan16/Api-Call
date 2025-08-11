@@ -18,16 +18,24 @@ def check_facebook_uid(uid):
     url = f"https://www.facebook.com/profile.php?id={uid}"
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"}
     try:
-        r = requests.get(url, headers=headers, timeout=10)
+        r = requests.get(url, headers=headers, timeout=5)
         
+        # HTTP 404 error check
         if r.status_code == 404:
             return "Dead"
         
         soup = BeautifulSoup(r.text, 'html.parser')
         
-        if soup.title and "Facebook" in soup.title.text and "Content Not Found" not in soup.title.text:
+        # Check for a specific meta tag that indicates a live profile
+        og_image_tag = soup.find('meta', {'property': 'og:image'})
+        
+        if og_image_tag and "https://static.xx.fbcdn.net/rsrc.php/v3/yO/r/Yp-d8W5y8v3.png" in og_image_tag['content']:
+            # এই URLটি একটি ডেড বা ডিফল্ট প্রোফাইল পিকচার।
+            return "Dead"
+        elif og_image_tag and "https://static.xx.fbcdn.net/rsrc.php/v3/yO/r/Yp-d8W5y8v3.png" not in og_image_tag['content']:
             return "Live"
         else:
+            # যদি og:image ট্যাগ না পাওয়া যায়
             return "Dead"
 
     except requests.exceptions.RequestException as e:
@@ -64,8 +72,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             dead_list.append(uid)
         else:
             error_list.append(uid)
-        # এখানে delay .05 সেকেন্ড করা হয়েছে
-        await asyncio.sleep(0.05)
+        # এখানে delay .02 সেকেন্ড করা হয়েছে
+        await asyncio.sleep(0.0030)
 
     # আউটপুট মেসেজ তৈরি
     messages = []
