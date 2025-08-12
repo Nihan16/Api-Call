@@ -25,43 +25,37 @@ async def check_facebook_uid_async(uid, client):
         r = await client.get(url, headers=headers, timeout=10)
         html_text = r.text.lower()
         soup = BeautifulSoup(r.text, 'html.parser')
-        
-        # HTTP 404 error check
-        if r.status_code == 404:
+
+        # HTTP স্ট্যাটাস কোড দিয়ে চেক
+        if r.status_code in [404, 405, 400]:
             return uid, "Dead"
 
-        # **তোমার নতুন স্ক্রিপ্ট থেকে যুক্ত করা লজিক**
-        # og:image ট্যাগ ব্যবহার করে ডেড প্রোফাইল চেক করা
+        # og:image ডেড চেক
         og_image_tag = soup.find('meta', {'property': 'og:image'})
-        if og_image_tag and "https://static.xx.fbcdn.net/rsrc.php/v3/yO/r/Yp-d8W5y8v3.png" in og_image_tag.get('content', ''):
-            return uid, "Dead"
-        # নতুন লজিক অনুযায়ী, যদি og:image থাকে এবং ডেড URL না হয়, তাহলে লাইভ
-        if og_image_tag and "https://static.xx.fbcdn.net/rsrc.php/v3/yO/r/Yp-d8W5y8v3.png" not in og_image_tag.get('content', ''):
-            return uid, "Live"
+        if og_image_tag:
+            img_url = og_image_tag.get('content', '')
+            if "static.xx.fbcdn.net/rsrc.php" in img_url and "yO/r/Yp-d8W5y8v3.png" in img_url:
+                return uid, "Dead"
 
-        # **আগের স্ক্রিপ্ট থেকে রাখা অতিরিক্ত ডেড প্যাটার্ন**
+        # ডেড কন্টেন্ট কিওয়ার্ড চেক
         dead_keywords = [
-            "this content isn't available at the moment",
-            "this content isn't available right now",
+            "this content isn't available", 
             "page not found",
             "the link you followed may be broken",
-            "আপনি যে পেজটি খুঁজছেন তা পাওয়া যায়নি"
+            "আপনি যে পেজটি খুঁজছেন তা পাওয়া যায়নি",
+            "content unavailable",
+            "profile not available"
         ]
         if any(keyword in html_text for keyword in dead_keywords):
             return uid, "Dead"
-            
-        # **আগের স্ক্রিপ্ট থেকে রাখা অতিরিক্ত লাইভ প্যাটার্ন**
-        # og:title মেটা ট্যাগ চেক
-        og_title_tag = soup.find("meta", property="og:title")
-        if og_title_tag and "facebook" not in og_title_tag.get("content", "").lower():
-            return uid, "Live"
-        
-        # বিকল্প লাইভ প্যাটার্ন: পেজের title ট্যাগ চেক
-        title_tag = soup.find("title")
-        if title_tag and "facebook" not in title_tag.text.lower() and "login" not in title_tag.text.lower():
-            return uid, "Live"
 
-        return uid, "Dead" # উপরে কোনো শর্ত না মিললে এটিকে ডেড ধরা হবে
+        # প্রোফাইল টাইটেল/নাম না থাকলে ডেড
+        og_title_tag = soup.find("meta", property="og:title")
+        if not og_title_tag or not og_title_tag.get("content", "").strip():
+            return uid, "Dead"
+
+        # সব চেক পাস করলে Live
+        return uid, "Live"
 
     except httpx.RequestError as e:
         logging.error(f"Error checking UID {uid}: {e}")
@@ -102,34 +96,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     end_time = time.time()
     total_time = end_time - start_time
-    
     context.user_data['live_uids'] = live_list
 
-    messages = []
-    if live_list:
-        live_text = "✅ **Live UIDs:**\n" + "\n".join(live_list)
-        messages.append(live_text)
-    
+    # ফলাফল প্রদর্শন
     if dead_list:
+        if live_list:
+            live_text = "✅ **Live UIDs:**\n" + "\n".join(live_list)
+            await update.message.reply_text(live_text, parse_mode="Markdown")
         dead_text = "❌ **Dead UIDs:**\n" + "`" + "`\n`".join(dead_list) + "`"
-        messages.append(dead_text)
+        await update.message.reply_text(dead_text, parse_mode="Markdown")
+    else:
+        if live_list:
+            live_only_text = f"✅ সবগুলো UID লাইভ রয়েছে ({len(live_list)}টি):\n" + "\n".join(live_list)
+            await update.message.reply_text(live_only_text, parse_mode="Markdown")
 
     if error_list:
         error_text = "⚠️ **Error UIDs:**\n" + "\n".join(error_list)
-        messages.append(error_text)
+        await update.message.reply_text(error_text, parse_mode="Markdown")
 
-    if not messages:
-        await update.message.reply_text("কোনো UID পাওয়া যায়নি বা সবগুলোতে সমস্যা হয়েছে।")
-        return
-
-    for msg in messages:
-        if len(msg) > 4096:
-            parts = [msg[i:i+4096] for i in range(0, len(msg), 4096)]
-            for p in parts:
-                await update.message.reply_text(p, parse_mode="Markdown")
-        else:
-            await update.message.reply_text(msg, parse_mode="Markdown")
-    
     if live_list:
         refresh_button = [[InlineKeyboardButton("Refresh Live UIDs", callback_data="refresh")]]
         reply_markup = InlineKeyboardMarkup(refresh_button)
@@ -138,7 +122,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
-
 
 # রিফ্রেশ বাটন
 async def refresh_uids(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -173,10 +156,8 @@ async def refresh_uids(update: Update, context: ContextTypes.DEFAULT_TYPE):
     output_message = ""
     if newly_dead_uids:
         output_message += "⚠️ **নতুন করে ডেড হওয়া UID-গুলো:**\n" + "`" + "`\n`".join(newly_dead_uids) + "`\n\n"
-    
     if current_live_uids:
         output_message += f"✅ **বর্তমানে লাইভ UID-গুলো ({len(current_live_uids)}টি):**\n" + "\n".join(current_live_uids) + "\n\n"
-    
     if not output_message:
         output_message = "কোনো UID লাইভ পাওয়া যায়নি।"
 
@@ -187,7 +168,6 @@ async def refresh_uids(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await query.edit_message_text(output_message, reply_markup=reply_markup, parse_mode="Markdown")
 
-
 # বট চালানো
 if __name__ == "__main__":
     app = ApplicationBuilder().token(BOT_TOKEN).build()
@@ -195,4 +175,3 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(refresh_uids))
     app.run_polling()
-            
