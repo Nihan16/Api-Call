@@ -25,10 +25,23 @@ async def check_facebook_uid_async(uid, client):
         r = await client.get(url, headers=headers, timeout=10)
         html_text = r.text.lower()
         soup = BeautifulSoup(r.text, 'html.parser')
+        
+        # HTTP 404 error check
+        if r.status_code == 404:
+            return uid, "Dead"
 
-        # ডেড প্যাটার্ন: যদি নির্দিষ্ট কোনো error মেসেজ পাওয়া যায়
+        # **তোমার নতুন স্ক্রিপ্ট থেকে যুক্ত করা লজিক**
+        # og:image ট্যাগ ব্যবহার করে ডেড প্রোফাইল চেক করা
+        og_image_tag = soup.find('meta', {'property': 'og:image'})
+        if og_image_tag and "https://static.xx.fbcdn.net/rsrc.php/v3/yO/r/Yp-d8W5y8v3.png" in og_image_tag.get('content', ''):
+            return uid, "Dead"
+        # নতুন লজিক অনুযায়ী, যদি og:image থাকে এবং ডেড URL না হয়, তাহলে লাইভ
+        if og_image_tag and "https://static.xx.fbcdn.net/rsrc.php/v3/yO/r/Yp-d8W5y8v3.png" not in og_image_tag.get('content', ''):
+            return uid, "Live"
+
+        # **আগের স্ক্রিপ্ট থেকে রাখা অতিরিক্ত ডেড প্যাটার্ন**
         dead_keywords = [
-            "this content isn't available at the moment", # Added this keyword based on the screenshot
+            "this content isn't available at the moment",
             "this content isn't available right now",
             "page not found",
             "the link you followed may be broken",
@@ -36,8 +49,9 @@ async def check_facebook_uid_async(uid, client):
         ]
         if any(keyword in html_text for keyword in dead_keywords):
             return uid, "Dead"
-
-        # লাইভ প্যাটার্ন (আপডেট করা লজিক): og:title মেটা ট্যাগ চেক
+            
+        # **আগের স্ক্রিপ্ট থেকে রাখা অতিরিক্ত লাইভ প্যাটার্ন**
+        # og:title মেটা ট্যাগ চেক
         og_title_tag = soup.find("meta", property="og:title")
         if og_title_tag and "facebook" not in og_title_tag.get("content", "").lower():
             return uid, "Live"
@@ -69,9 +83,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ অনুগ্রহ করে শুধু UID নাম্বার পাঠান (প্রতিটি লাইনে একটি করে)।")
         return
 
+    live_list, dead_list, error_list = [], [], []
     await update.message.reply_text(f"⏳ {len(uids)}টি UID চেকিং শুরু হয়েছে... দয়া করে অপেক্ষা করুন।")
-
-    live_list, error_list = [], []
+    
     start_time = time.time()
 
     async with httpx.AsyncClient() as client:
@@ -81,23 +95,42 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for uid, status in results:
         if status == "Live":
             live_list.append(uid)
-        elif status == "Error":
+        elif status == "Dead":
+            dead_list.append(uid)
+        else:
             error_list.append(uid)
-
+    
     end_time = time.time()
     total_time = end_time - start_time
-
+    
     context.user_data['live_uids'] = live_list
 
-    # শুধুমাত্র লাইভ UID তালিকা দেখানো হচ্ছে
+    messages = []
     if live_list:
-        live_uids_message = "✅ **Live UIDs:**\n" + "\n".join(live_list)
-        if len(live_uids_message) > 4096:
-            for i in range(0, len(live_uids_message), 4096):
-                await update.message.reply_text(live_uids_message[i:i+4096], parse_mode="Markdown")
+        live_text = "✅ **Live UIDs:**\n" + "\n".join(live_list)
+        messages.append(live_text)
+    
+    if dead_list:
+        dead_text = "❌ **Dead UIDs:**\n" + "`" + "`\n`".join(dead_list) + "`"
+        messages.append(dead_text)
+
+    if error_list:
+        error_text = "⚠️ **Error UIDs:**\n" + "\n".join(error_list)
+        messages.append(error_text)
+
+    if not messages:
+        await update.message.reply_text("কোনো UID পাওয়া যায়নি বা সবগুলোতে সমস্যা হয়েছে।")
+        return
+
+    for msg in messages:
+        if len(msg) > 4096:
+            parts = [msg[i:i+4096] for i in range(0, len(msg), 4096)]
+            for p in parts:
+                await update.message.reply_text(p, parse_mode="Markdown")
         else:
-            await update.message.reply_text(live_uids_message, parse_mode="Markdown")
-        
+            await update.message.reply_text(msg, parse_mode="Markdown")
+    
+    if live_list:
         refresh_button = [[InlineKeyboardButton("Refresh Live UIDs", callback_data="refresh")]]
         reply_markup = InlineKeyboardMarkup(refresh_button)
         await update.message.reply_text(
@@ -105,12 +138,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
-    else:
-        # কোন লাইভ আইডি না পেলে, এরর আইডি আছে কিনা তা জানানো হচ্ছে
-        if error_list:
-            await update.message.reply_text(f"দুঃখিত, কোনো লাইভ UID পাওয়া যায়নি। তবে **{len(error_list)}**টি UID চেক করার সময় সমস্যা হয়েছে। এটি সার্ভারের কোনো ব্লক বা সংযোগ সমস্যার কারণে হতে পারে।", parse_mode="Markdown")
-        else:
-            await update.message.reply_text("দুঃখিত, কোনো লাইভ UID পাওয়া যায়নি।")
 
 
 # রিফ্রেশ বাটন
@@ -168,4 +195,4 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(refresh_uids))
     app.run_polling()
-        
+            
