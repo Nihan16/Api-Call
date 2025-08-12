@@ -28,6 +28,7 @@ async def check_facebook_uid_async(uid, client):
 
         # ডেড প্যাটার্ন: যদি নির্দিষ্ট কোনো error মেসেজ পাওয়া যায়
         dead_keywords = [
+            "this content isn't available at the moment", # Added this keyword based on the screenshot
             "this content isn't available right now",
             "page not found",
             "the link you followed may be broken",
@@ -43,7 +44,7 @@ async def check_facebook_uid_async(uid, client):
         
         # বিকল্প লাইভ প্যাটার্ন: পেজের title ট্যাগ চেক
         title_tag = soup.find("title")
-        if title_tag and "facebook" not in title_tag.text.lower():
+        if title_tag and "facebook" not in title_tag.text.lower() and "login" not in title_tag.text.lower():
             return uid, "Live"
 
         return uid, "Dead" # উপরে কোনো শর্ত না মিললে এটিকে ডেড ধরা হবে
@@ -167,4 +168,4 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(refresh_uids))
     app.run_polling()
-            
+        
