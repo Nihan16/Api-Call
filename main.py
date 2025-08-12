@@ -64,8 +64,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(f"⏳ {len(uids)}টি UID চেকিং শুরু হয়েছে... দয়া করে অপেক্ষা করুন।")
 
-    context.user_data['live_uids'] = []
-    live_list, dead_list, error_list = [], [], []
+    live_list = []
     start_time = time.time()
 
     async with httpx.AsyncClient() as client:
@@ -75,36 +74,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for uid, status in results:
         if status == "Live":
             live_list.append(uid)
-        elif status == "Dead":
-            dead_list.append(uid)
-        else:
-            error_list.append(uid)
 
     end_time = time.time()
     total_time = end_time - start_time
 
     context.user_data['live_uids'] = live_list
 
-    messages = []
+    # শুধুমাত্র লাইভ UID তালিকা দেখানো হচ্ছে
     if live_list:
-        messages.append("✅ **Live UIDs:**\n" + "\n".join(live_list))
-    if dead_list:
-        messages.append("❌ **Dead UIDs:**\n" + "`" + "`\n`".join(dead_list) + "`")
-    if error_list:
-        messages.append("⚠️ **Error UIDs:**\n" + "\n".join(error_list))
-
-    if not messages:
-        await update.message.reply_text("কোনো UID পাওয়া যায়নি বা সবগুলোতে সমস্যা হয়েছে।")
-        return
-
-    for msg in messages:
-        if len(msg) > 4096:
-            for i in range(0, len(msg), 4096):
-                await update.message.reply_text(msg[i:i+4096], parse_mode="Markdown")
+        live_uids_message = "✅ **Live UIDs:**\n" + "\n".join(live_list)
+        if len(live_uids_message) > 4096:
+            # মেসেজ বড় হলে একাধিক ভাগে পাঠানো
+            for i in range(0, len(live_uids_message), 4096):
+                await update.message.reply_text(live_uids_message[i:i+4096], parse_mode="Markdown")
         else:
-            await update.message.reply_text(msg, parse_mode="Markdown")
-
-    if live_list:
+            await update.message.reply_text(live_uids_message, parse_mode="Markdown")
+        
         refresh_button = [[InlineKeyboardButton("Refresh Live UIDs", callback_data="refresh")]]
         reply_markup = InlineKeyboardMarkup(refresh_button)
         await update.message.reply_text(
@@ -112,6 +97,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
+    else:
+        await update.message.reply_text("দুঃখিত, কোনো লাইভ UID পাওয়া যায়নি।")
+
 
 # রিফ্রেশ বাটন
 async def refresh_uids(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -143,13 +131,20 @@ async def refresh_uids(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total_time = end_time - start_time
     context.user_data['live_uids'] = current_live_uids
 
+    # এখানে আউটপুট মেসেজ পরিবর্তন করা হয়েছে যাতে নতুন ডেড এবং বর্তমান লাইভ উভয় তালিকা দেখায়
     output_message = ""
     if newly_dead_uids:
         output_message += "⚠️ **নতুন করে ডেড হওয়া UID-গুলো:**\n" + "`" + "`\n`".join(newly_dead_uids) + "`\n\n"
-    output_message += f"বর্তমানে **{len(current_live_uids)}**টি UID লাইভ আছে।\n"
+    
+    if current_live_uids:
+        output_message += f"✅ **বর্তমানে লাইভ UID-গুলো ({len(current_live_uids)}টি):**\n" + "\n".join(current_live_uids) + "\n\n"
+    
+    if not output_message:
+        output_message = "কোনো UID লাইভ পাওয়া যায়নি।"
+
     output_message += f"রিফ্রেশ করতে মোট সময় লেগেছে: **{total_time:.2f}** সেকেন্ড।"
     
-    # এখানে পরিবর্তন করা হয়েছে: রিফ্রেশ বাটনটি আবার যোগ করা হয়েছে
+    # রিফ্রেশ বাটনটি আবার যোগ করা হয়েছে
     refresh_button = [[InlineKeyboardButton("Refresh Live UIDs", callback_data="refresh")]]
     reply_markup = InlineKeyboardMarkup(refresh_button)
 
