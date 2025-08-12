@@ -13,18 +13,20 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# Facebook UID চেক (নতুন প্যাটার্ন ভিত্তিক)
+# Facebook UID চেক (আপডেট করা লজিক)
 async def check_facebook_uid_async(uid, client):
     url = f"https://www.facebook.com/profile.php?id={uid}"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3",
-        "Accept-Language": "en-US,en;q=0.9"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
     }
     try:
         r = await client.get(url, headers=headers, timeout=10)
         html_text = r.text.lower()
+        soup = BeautifulSoup(r.text, 'html.parser')
 
-        # Dead প্যাটার্ন
+        # ডেড প্যাটার্ন: যদি নির্দিষ্ট কোনো error মেসেজ পাওয়া যায়
         dead_keywords = [
             "this content isn't available right now",
             "page not found",
@@ -34,13 +36,17 @@ async def check_facebook_uid_async(uid, client):
         if any(keyword in html_text for keyword in dead_keywords):
             return uid, "Dead"
 
-        # Live প্যাটার্ন
-        soup = BeautifulSoup(r.text, 'html.parser')
+        # লাইভ প্যাটার্ন (আপডেট করা লজিক): og:title মেটা ট্যাগ চেক
+        og_title_tag = soup.find("meta", property="og:title")
+        if og_title_tag and "facebook" not in og_title_tag.get("content", "").lower():
+            return uid, "Live"
+        
+        # বিকল্প লাইভ প্যাটার্ন: পেজের title ট্যাগ চেক
         title_tag = soup.find("title")
         if title_tag and "facebook" not in title_tag.text.lower():
             return uid, "Live"
 
-        return uid, "Error"
+        return uid, "Dead" # উপরে কোনো শর্ত না মিললে এটিকে ডেড ধরা হবে
 
     except httpx.RequestError as e:
         logging.error(f"Error checking UID {uid}: {e}")
@@ -64,7 +70,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(f"⏳ {len(uids)}টি UID চেকিং শুরু হয়েছে... দয়া করে অপেক্ষা করুন।")
 
-    live_list = []
+    live_list, error_list = [], []
     start_time = time.time()
 
     async with httpx.AsyncClient() as client:
@@ -74,6 +80,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for uid, status in results:
         if status == "Live":
             live_list.append(uid)
+        elif status == "Error":
+            error_list.append(uid)
 
     end_time = time.time()
     total_time = end_time - start_time
@@ -84,7 +92,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if live_list:
         live_uids_message = "✅ **Live UIDs:**\n" + "\n".join(live_list)
         if len(live_uids_message) > 4096:
-            # মেসেজ বড় হলে একাধিক ভাগে পাঠানো
             for i in range(0, len(live_uids_message), 4096):
                 await update.message.reply_text(live_uids_message[i:i+4096], parse_mode="Markdown")
         else:
@@ -98,7 +105,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
     else:
-        await update.message.reply_text("দুঃখিত, কোনো লাইভ UID পাওয়া যায়নি।")
+        # কোন লাইভ আইডি না পেলে, এরর আইডি আছে কিনা তা জানানো হচ্ছে
+        if error_list:
+            await update.message.reply_text(f"দুঃখিত, কোনো লাইভ UID পাওয়া যায়নি। তবে **{len(error_list)}**টি UID চেক করার সময় সমস্যা হয়েছে। এটি সার্ভারের কোনো ব্লক বা সংযোগ সমস্যার কারণে হতে পারে।", parse_mode="Markdown")
+        else:
+            await update.message.reply_text("দুঃখিত, কোনো লাইভ UID পাওয়া যায়নি।")
 
 
 # রিফ্রেশ বাটন
@@ -131,7 +142,6 @@ async def refresh_uids(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total_time = end_time - start_time
     context.user_data['live_uids'] = current_live_uids
 
-    # এখানে আউটপুট মেসেজ পরিবর্তন করা হয়েছে যাতে নতুন ডেড এবং বর্তমান লাইভ উভয় তালিকা দেখায়
     output_message = ""
     if newly_dead_uids:
         output_message += "⚠️ **নতুন করে ডেড হওয়া UID-গুলো:**\n" + "`" + "`\n`".join(newly_dead_uids) + "`\n\n"
@@ -144,7 +154,6 @@ async def refresh_uids(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     output_message += f"রিফ্রেশ করতে মোট সময় লেগেছে: **{total_time:.2f}** সেকেন্ড।"
     
-    # রিফ্রেশ বাটনটি আবার যোগ করা হয়েছে
     refresh_button = [[InlineKeyboardButton("Refresh Live UIDs", callback_data="refresh")]]
     reply_markup = InlineKeyboardMarkup(refresh_button)
 
@@ -158,4 +167,4 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(CallbackQueryHandler(refresh_uids))
     app.run_polling()
-        
+            
