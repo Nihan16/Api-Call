@@ -339,8 +339,8 @@ async def handle_message_with_id_storage(update: Update, context: ContextTypes.D
             bot_response_message_ids[user_id].append(response_message.message_id)
 
 
-def main():
-    """বট শুরু করার প্রধান ফাংশন।"""
+async def main():
+    """বট শুরু করার প্রধান অ্যাসিঙ্ক্রোনাস ফাংশন।"""
     application = Application.builder().token(TOKEN).build()
 
     # কমান্ড হ্যান্ডলার যোগ করা
@@ -358,9 +358,8 @@ def main():
     asyncio.create_task(keep_alive(application))
 
     # বট পোলিং শুরু করা
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    await application.run_polling(allowed_updates=Update.ALL_TYPES)
     logger.info("Bot started polling.")
 
 if __name__ == "__main__":
-    main()
-    
+    asyncio.run(main())
