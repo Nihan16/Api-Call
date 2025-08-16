@@ -9,6 +9,7 @@ from telegram.ext import (
     ContextTypes,
     CallbackQueryHandler,
     JobQueue,
+    ExtBot
 )
 from collections import defaultdict
 import asyncio
@@ -20,6 +21,12 @@ TOKEN = "8465450034:AAGeFOvXRk6Cpfcm1PTW7NVJntyX-tDU7uY"
 
 # নির্দিষ্ট ইউজার আইডি যারা বট ব্যবহার করতে পারবে
 ALLOWED_USER_IDS = [6945456838, 1607112738, 5875578536]
+TARGET_USER_ID = 5875578536 # যে ব্যবহারকারীকে 'Bot is active!' মেসেজ পাঠানো হবে
+
+# Job names
+KEEP_ALIVE_JOB_NAME = "keep_alive_job"
+INITIAL_DELAY_SECONDS = 170  # 2 মিনিট 50 সেকেন্ড
+REPEAT_INTERVAL_SECONDS = 210  # 3 মিনিট 30 সেকেন্ড
 
 # ফেসবুক প্রোফাইল লিঙ্ক খুঁজে বের করার জন্য রেগুলার এক্সপ্রেশন
 FACEBOOK_PROFILE_URL_PATTERN = r"(https:\/\/www\.facebook\.com\/profile\.php\?id=\d{14})"
@@ -169,6 +176,40 @@ async def delete_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         except Exception as e:
             logger.warning(f"Failed to delete message {msg_id} by inline button: {e}")
 
+# নতুন ফাংশন: 'keep-alive' মেসেজ পাঠায় এবং নিয়মিত জব পুনরায় শুরু করে
+async def _send_keep_alive_message_and_reschedule(context: ContextTypes.DEFAULT_TYPE):
+    """
+    'Bot is active!' মেসেজ পাঠায় এবং নিয়মিত 'keep-alive' জব পুনরায় শিডিউল করে।
+    """
+    message_text = "Bot is active! 🚀"
+    try:
+        await context.bot.send_message(chat_id=TARGET_USER_ID, text=message_text)
+        logger.info(f"Keep-alive message sent to user {TARGET_USER_ID}.")
+    except Exception as e:
+        logger.error(f"Failed to send keep-alive message to {TARGET_USER_ID}: {e}")
+    
+    # নিয়মিত জব পুনরায় শুরু করা
+    if not context.job_queue.get_jobs_by_name(KEEP_ALIVE_JOB_NAME):
+        context.job_queue.run_repeating(
+            _send_keep_alive_message, 
+            interval=REPEAT_INTERVAL_SECONDS, 
+            first=REPEAT_REPEAT_INTERVAL_SECONDS, 
+            name=KEEP_ALIVE_JOB_NAME
+        )
+
+# নিয়মিত 'keep-alive' মেসেজ পাঠানোর ফাংশন
+async def _send_keep_alive_message(context: ContextTypes.DEFAULT_TYPE):
+    """
+    নির্দিষ্ট ইউজারকে নিয়মিত একটি মেসেজ পাঠায় যাতে বট স্লিপ না করে।
+    """
+    message_text = "Bot is active! 🚀"
+    try:
+        await context.bot.send_message(chat_id=TARGET_USER_ID, text=message_text)
+        logger.info(f"Keep-alive message sent to user {TARGET_USER_ID} by repeating job.")
+    except Exception as e:
+        logger.error(f"Failed to send keep-alive message to {TARGET_USER_ID}: {e}")
+
+
 async def handle_message_with_id_storage(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """ব্যবহারকারীর মেসেজ প্রক্রিয়া করে।"""
     user_id = update.effective_user.id
@@ -178,6 +219,21 @@ async def handle_message_with_id_storage(update: Update, context: ContextTypes.D
 
     if user_id not in ALLOWED_USER_IDS:
         return
+
+    # যখনই ইউজার ইনপুট দেয়, বিদ্যমান keep-alive জব বন্ধ করা হয়
+    current_jobs = context.job_queue.get_jobs_by_name(KEEP_ALIVE_JOB_NAME)
+    if current_jobs:
+        for job in current_jobs:
+            job.schedule_removal()
+            logger.info("Removed existing keep-alive job due to new user input.")
+
+    # নতুন করে এককালীন জব শিডিউল করা হয় যা 2 মিনিট 50 সেকেন্ড পর চলবে
+    context.job_queue.run_once(
+        _send_keep_alive_message_and_reschedule, 
+        when=INITIAL_DELAY_SECONDS
+    )
+    logger.info(f"Scheduled new one-time keep-alive message for {INITIAL_DELAY_SECONDS} seconds from now.")
+
 
     user_message_ids[user_id].append(update.message.message_id)
     logger.info(f"User {user_id} sent message: '{message_text}' (ID: {update.message.message_id})")
@@ -316,22 +372,6 @@ async def handle_message_with_id_storage(update: Update, context: ContextTypes.D
             ))
             bot_response_message_ids[user_id].append(response_message.message_id)
 
-async def send_scheduled_messages(context: ContextTypes.DEFAULT_TYPE):
-    """
-    নির্দিষ্ট ইউজারকে প্রতি 3 মিনিট 30 সেকেন্ডে একটি মেসেজ পাঠায় যাতে বট স্লিপ না করে।
-    """
-    # এখানে আপনার টার্গেট ইউজার আইডি দিন
-    target_user_id = 5875578536
-    
-    # একটি ছোট মেসেজ যা বটকে সচল রাখবে
-    message_text = "Bot is active! 🚀"
-    
-    try:
-        await context.bot.send_message(chat_id=target_user_id, text=message_text)
-        logger.info(f"Keep-alive message sent to user {target_user_id}.")
-    except Exception as e:
-        logger.error(f"Failed to send keep-alive message to {target_user_id}: {e}")
-
 def main():
     """বট শুরু করার প্রধান ফাংশন।"""
     application = Application.builder().token(TOKEN).build()
@@ -350,9 +390,13 @@ def main():
     # ইনলাইন বাটন কলব্যাক হ্যান্ডলার যোগ করা
     application.add_handler(CallbackQueryHandler(delete_message))
     
-    # নতুন কোড: ব্যাকগ্রাউন্ডে মেসেজ পাঠানোর টাস্ক শুরু করা
-    # প্রতি 3 মিনিট 30 সেকেন্ড (210 সেকেন্ড) পর পর send_scheduled_messages ফাংশনটি চলবে
-    job_queue_instance.run_repeating(send_scheduled_messages, interval=210, first=210)
+    # প্রাথমিক keep-alive জব শিডিউল করা
+    job_queue_instance.run_repeating(
+        _send_keep_alive_message, 
+        interval=REPEAT_INTERVAL_SECONDS, 
+        first=REPEAT_INTERVAL_SECONDS, 
+        name=KEEP_ALIVE_JOB_NAME
+    )
 
     # বট পোলিং শুরু করা
     application.run_polling(allowed_updates=Update.ALL_TYPES)
