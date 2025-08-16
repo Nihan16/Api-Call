@@ -318,29 +318,19 @@ async def handle_message_with_id_storage(update: Update, context: ContextTypes.D
 
 async def send_scheduled_messages(context: ContextTypes.DEFAULT_TYPE):
     """
-    নির্দিষ্ট ইউজারকে প্রতি 4 মিনিটে দুটি মেসেজ পাঠায়।
-    প্রথম মেসেজটি 2 মিনিট পর এবং দ্বিতীয়টি 3 মিনিট পর পাঠানো হয়।
+    নির্দিষ্ট ইউজারকে প্রতি 4 মিনিটে একটি মেসেজ পাঠায় যাতে বট স্লিপ না করে।
     """
-    chat_id_to_message = 5875578536
+    # এখানে আপনার টার্গেট ইউজার আইডি দিন
+    target_user_id = 5875578536
     
-    # প্রথম মেসেজ পাঠানো (2 মিনিট পর)
-    message_1_text = "আপনার প্রথম মেসেজ এখানে লিখুন।"
-    try:
-        await context.bot.send_message(chat_id=chat_id_to_message, text=message_1_text)
-        logger.info(f"Scheduled message 1 sent to user {chat_id_to_message}.")
-    except Exception as e:
-        logger.error(f"Failed to send scheduled message 1 to {chat_id_to_message}: {e}")
-
-    # অতিরিক্ত 1 মিনিটের জন্য অপেক্ষা করা
-    await asyncio.sleep(60) # 1 মিনিট = 60 সেকেন্ড
+    # একটি ছোট মেসেজ যা বটকে সচল রাখবে
+    message_text = "Bot is active! 🚀"
     
-    # দ্বিতীয় মেসেজ পাঠানো (3 মিনিট পর)
-    message_2_text = "আপনার দ্বিতীয় মেসেজ এখানে লিখুন।"
     try:
-        await context.bot.send_message(chat_id=chat_id_to_message, text=message_2_text)
-        logger.info(f"Scheduled message 2 sent to user {chat_id_to_message}.")
+        await context.bot.send_message(chat_id=target_user_id, text=message_text)
+        logger.info(f"Keep-alive message sent to user {target_user_id}.")
     except Exception as e:
-        logger.error(f"Failed to send scheduled message 2 to {chat_id_to_message}: {e}")
+        logger.error(f"Failed to send keep-alive message to {target_user_id}: {e}")
 
 def main():
     """বট শুরু করার প্রধান ফাংশন।"""
@@ -361,8 +351,9 @@ def main():
     application.add_handler(CallbackQueryHandler(delete_message))
     
     # নতুন কোড: ব্যাকগ্রাউন্ডে মেসেজ পাঠানোর টাস্ক শুরু করা
-    # এখানে আমরা সরাসরি job_queue_instance ব্যবহার করছি, যা একটি Non-NoneType অবজেক্ট
-    job_queue_instance.run_repeating(send_scheduled_messages, interval=240, first=120)
+    # প্রতি 4 মিনিট (240 সেকেন্ড) পর পর send_scheduled_messages ফাংশনটি চলবে
+    # এটি বটকে সচল রাখতে সাহায্য করবে
+    job_queue_instance.run_repeating(send_scheduled_messages, interval=240, first=240)
 
     # বট পোলিং শুরু করা
     application.run_polling(allowed_updates=Update.ALL_TYPES)
@@ -370,4 +361,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
