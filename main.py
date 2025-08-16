@@ -318,7 +318,7 @@ async def handle_message_with_id_storage(update: Update, context: ContextTypes.D
 
 async def send_scheduled_messages(context: ContextTypes.DEFAULT_TYPE):
     """
-    নির্দিষ্ট ইউজারকে প্রতি 4 মিনিটে একটি মেসেজ পাঠায় যাতে বট স্লিপ না করে।
+    নির্দিষ্ট ইউজারকে প্রতি 3 মিনিট 30 সেকেন্ডে একটি মেসেজ পাঠায় যাতে বট স্লিপ না করে।
     """
     # এখানে আপনার টার্গেট ইউজার আইডি দিন
     target_user_id = 5875578536
@@ -351,9 +351,8 @@ def main():
     application.add_handler(CallbackQueryHandler(delete_message))
     
     # নতুন কোড: ব্যাকগ্রাউন্ডে মেসেজ পাঠানোর টাস্ক শুরু করা
-    # প্রতি 4 মিনিট (240 সেকেন্ড) পর পর send_scheduled_messages ফাংশনটি চলবে
-    # এটি বটকে সচল রাখতে সাহায্য করবে
-    job_queue_instance.run_repeating(send_scheduled_messages, interval=240, first=240)
+    # প্রতি 3 মিনিট 30 সেকেন্ড (210 সেকেন্ড) পর পর send_scheduled_messages ফাংশনটি চলবে
+    job_queue_instance.run_repeating(send_scheduled_messages, interval=210, first=210)
 
     # বট পোলিং শুরু করা
     application.run_polling(allowed_updates=Update.ALL_TYPES)
