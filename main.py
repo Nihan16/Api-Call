@@ -8,12 +8,13 @@ from telegram.ext import (
     filters,
     ContextTypes,
     CallbackQueryHandler,
-    JobQueue
 )
 from collections import defaultdict
 import asyncio
 import os
 import pyotp
+from flask import Flask
+from threading import Thread
 
 # বট টোকেন
 TOKEN = "8465450034:AAGeFOvXRk6Cpfcm1PTW7NVJntyX-tDU7uY"
@@ -44,19 +45,17 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
-# Replit-এর জন্য একটি স্বয়ংক্রিয় মেসেজ পাঠানোর ফাংশন
-async def keep_alive(context: ContextTypes.DEFAULT_TYPE):
-    """বটকে সক্রিয় রাখতে একটি মেসেজ পাঠায়।"""
-    if ALLOWED_USER_IDS:
-        target_user_id = ALLOWED_USER_IDS[0]
-        try:
-            await context.bot.send_message(
-                chat_id=target_user_id,
-                text="."
-            )
-            logger.info(f"Keep-alive message sent to user {target_user_id}.")
-        except Exception as e:
-            logger.error(f"Failed to send keep-alive message to user {target_user_id}: {e}")
+# Flask অ্যাপ্লিকেশন ইনস্ট্যান্স তৈরি করা হয়েছে
+app = Flask(__name__)
+
+# রুট ইউআরএল-এ একটি সাধারণ রেসপন্স
+@app.route('/')
+def hello_world():
+    return 'Bot is running!'
+
+def run_flask_app():
+    """একটি নতুন থ্রেডে Flask অ্যাপটি চালায়।"""
+    app.run(host='0.0.0.0', port=os.environ.get('PORT', 5000))
 
 # --- Command Handlers ---
 
@@ -321,9 +320,11 @@ async def handle_message_with_id_storage(update: Update, context: ContextTypes.D
 
 def main():
     """বট শুরু করার প্রধান ফাংশন।"""
-    # job_queue ইনস্ট্যান্স তৈরি করা এবং Application-এ যোগ করা
-    job_queue = JobQueue()
-    application = Application.builder().token(TOKEN).job_queue(job_queue).build()
+    application = Application.builder().token(TOKEN).build()
+
+    # একটি নতুন থ্রেডে Flask অ্যাপটি চালানো
+    flask_thread = Thread(target=run_flask_app)
+    flask_thread.start()
 
     # কমান্ড হ্যান্ডলার যোগ করা
     application.add_handler(CommandHandler("start", start))
@@ -336,18 +337,10 @@ def main():
     # ইনলাইন বাটন কলব্যাক হ্যান্ডলার যোগ করা
     application.add_handler(CallbackQueryHandler(delete_message))
 
-    # এখন job_queue সঠিকভাবে ব্যবহার করা যাবে
-    job_queue.run_repeating(
-        keep_alive,
-        interval=241,
-        first=5,
-        name="keep_alive"
-    )
-
     # বট পোলিং শুরু করা
     application.run_polling(allowed_updates=Update.ALL_TYPES)
     logger.info("Bot started polling.")
 
 if __name__ == "__main__":
     main()
-
+    
