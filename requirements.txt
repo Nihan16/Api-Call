@@ -1,2 +1,2 @@
-python-telegram-bot[job-queue]==20.7
-pyotp==2.9.0
+python-telegram-bot==20.6
+pyotp==2.8.0
