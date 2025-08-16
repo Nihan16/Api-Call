@@ -8,6 +8,7 @@ from telegram.ext import (
     filters,
     ContextTypes,
     CallbackQueryHandler,
+    JobQueue
 )
 from collections import defaultdict
 import asyncio
@@ -46,12 +47,9 @@ logger = logging.getLogger(__name__)
 # Replit-এর জন্য একটি স্বয়ংক্রিয় মেসেজ পাঠানোর ফাংশন
 async def keep_alive(context: ContextTypes.DEFAULT_TYPE):
     """বটকে সক্রিয় রাখতে একটি মেসেজ পাঠায়।"""
-    # শুধুমাত্র নির্দিষ্ট ইউজার আইডি-দের মধ্যে প্রথম ইউজারকে মেসেজ পাঠাবে
     if ALLOWED_USER_IDS:
         target_user_id = ALLOWED_USER_IDS[0]
         try:
-            # একটি ইনভিজিবল মেসেজ বা সাধারণ মেসেজ পাঠানো যায়
-            # এখানে একটি ডামি মেসেজ ব্যবহার করা হয়েছে যা ইউজারকে বিরক্ত করবে না
             await context.bot.send_message(
                 chat_id=target_user_id,
                 text="."
@@ -113,7 +111,6 @@ async def send_all_ids(update: Update, context: ContextTypes.DEFAULT_TYPE):
     response_message = await update.message.reply_text(response_text, parse_mode='Markdown')
     bot_response_message_ids[user_id].append(response_message.message_id)
 
-    # নতুন কোড: 20 সেকেন্ড পর মেসেজটি ডিলিট করে
     asyncio.create_task(delete_message_after_delay(chat_id=chat_id, message_id=response_message.message_id, delay=20))
     asyncio.create_task(delete_message_after_delay(chat_id=chat_id, message_id=update.message.message_id, delay=20))
 
@@ -155,13 +152,11 @@ async def clear_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data['extracted_ids'] = []
     
-    # Facebook ID থেকে মেসেজ আইডি ডিকশনারি খালি করা
     facebook_id_to_message_id.clear()
 
     confirmation_message = await update.message.reply_text("সমস্ত চ্যাট মুছে ফেলা হয়েছে। আপনি এখন নতুন করে শুরু করতে পারেন।")
     bot_response_message_ids[user_id].append(confirmation_message.message_id)
 
-# নতুন ডিলিট ফাংশন
 async def delete_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """ইনলাইন বাটনে ক্লিক করলে মেসেজগুলো মুছে ফেলে।"""
     query = update.callback_query
@@ -171,13 +166,11 @@ async def delete_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     chat_id = query.message.chat_id
     current_message_id = query.message.message_id
     
-    # কলব্যাক ডেটা থেকে পূর্ববর্তী মেসেজ আইডির তালিকা পেতে
     message_ids_str = query.data.replace('delete_', '')
     message_ids = [int(mid) for mid in message_ids_str.split(',') if mid.isdigit()]
     
     message_ids.append(current_message_id)
 
-    # সব মেসেজ ডিলিট করা
     for msg_id in set(message_ids):
         try:
             await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
@@ -198,7 +191,6 @@ async def handle_message_with_id_storage(update: Update, context: ContextTypes.D
     user_message_ids[user_id].append(update.message.message_id)
     logger.info(f"User {user_id} sent message: '{message_text}' (ID: {update.message.message_id})")
 
-    # ১. যদি কোনো 2FA কী না পাওয়া যায়, তবে Facebook ID খোঁজা হবে
     extracted_ids = context.user_data.get('extracted_ids', [])
     full_url_match = re.search(FACEBOOK_PROFILE_URL_PATTERN, message_text)
 
@@ -213,7 +205,6 @@ async def handle_message_with_id_storage(update: Update, context: ContextTypes.D
                 previous_message_ids = facebook_id_to_message_id[extracted_id]
                 response_text = f"এই আইডিটি (`{extracted_id}`) পূর্বে ব্যবহৃত হয়েছে। নিচে তার মেসেজটি দেওয়া হলো:"
                 
-                # ইনলাইন বাটন মেসেজটি আগে পাঠানো
                 all_ids_to_delete = previous_message_ids
                 keyboard = [
                     [InlineKeyboardButton("Delete", callback_data=f"delete_{','.join(map(str, all_ids_to_delete))}")]
@@ -222,11 +213,10 @@ async def handle_message_with_id_storage(update: Update, context: ContextTypes.D
                 response_message_inline = await update.message.reply_text(response_text, reply_markup=reply_markup, parse_mode='Markdown')
                 bot_response_message_ids[user_id].append(response_message_inline.message_id)
 
-                # তারপর ফরোয়ার্ড করা মেসেজটি পাঠানো
                 forwarded_message = await context.bot.forward_message(chat_id=chat_id, from_chat_id=chat_id, message_id=previous_message_ids[0])
                 bot_response_message_ids[user_id].append(forwarded_message.message_id)
-                facebook_id_to_message_id[extracted_id].append(response_message_inline.message_id) # নতুন মেসেজ আইডি যুক্ত করা
-                facebook_id_to_message_id[extracted_id].append(forwarded_message.message_id) # নতুন মেসেজ আইডি যুক্ত করা
+                facebook_id_to_message_id[extracted_id].append(response_message_inline.message_id)
+                facebook_id_to_message_id[extracted_id].append(forwarded_message.message_id)
 
             else:
                 if extracted_id not in extracted_ids:
@@ -254,7 +244,6 @@ async def handle_message_with_id_storage(update: Update, context: ContextTypes.D
             logger.info(f"Scheduled deletion of user message {update.message.message_id} from user {user_id}.")
         response_sent = True
 
-    # ২. নতুন ফরম্যাট অনুযায়ী 32-character string খোঁজা
     new_secret_match = NEW_TOTP_SECRET_PATTERN.search(message_text.upper())
     if new_secret_match:
         secret = new_secret_match.group(0).replace(" ", "")
@@ -284,7 +273,6 @@ async def handle_message_with_id_storage(update: Update, context: ContextTypes.D
             logger.error(f"Failed to generate OTP for user {user_id} with new format.")
             response_sent = True
 
-    # ৩. পুরনো ফরম্যাট (TOTP_SECRET_PATTERN) খোঁজা হবে
     elif TOTP_SECRET_PATTERN.search(message_text.replace(" ", "").upper()):
         secret = TOTP_SECRET_PATTERN.search(message_text.replace(" ", "").upper()).group(0)
         try:
@@ -313,7 +301,6 @@ async def handle_message_with_id_storage(update: Update, context: ContextTypes.D
             logger.error(f"Failed to generate OTP for user {user_id} with old format.")
             response_sent = True
 
-    # যদি কোনো প্যাটার্নই না পাওয়া যায়
     if not response_sent:
         response_message = await update.message.reply_text(
             "আপনার মেসেজে কোনো নির্দিষ্ট ফেসবুক প্রোফাইল আইডি অথবা 2FA সিক্রেট কী খুঁজে পাইনি।"
@@ -334,7 +321,9 @@ async def handle_message_with_id_storage(update: Update, context: ContextTypes.D
 
 def main():
     """বট শুরু করার প্রধান ফাংশন।"""
-    application = Application.builder().token(TOKEN).build()
+    # job_queue ইনস্ট্যান্স তৈরি করা এবং Application-এ যোগ করা
+    job_queue = JobQueue()
+    application = Application.builder().token(TOKEN).job_queue(job_queue).build()
 
     # কমান্ড হ্যান্ডলার যোগ করা
     application.add_handler(CommandHandler("start", start))
@@ -347,11 +336,10 @@ def main():
     # ইনলাইন বাটন কলব্যাক হ্যান্ডলার যোগ করা
     application.add_handler(CallbackQueryHandler(delete_message))
 
-    # প্রতি 4 মিনিট 1 সেকেন্ড পর পর keep_alive ফাংশনটি চালু করার জন্য
-    # নির্দিষ্ট সময়ে কাজ করার জন্য job_queue ব্যবহার করা হয়েছে
-    application.job_queue.run_repeating(
+    # এখন job_queue সঠিকভাবে ব্যবহার করা যাবে
+    job_queue.run_repeating(
         keep_alive,
-        interval=241,  # 4 মিনিট 1 সেকেন্ড = 241 সেকেন্ড
+        interval=241,
         first=5,
         name="keep_alive"
     )
