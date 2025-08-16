@@ -345,7 +345,10 @@ async def send_scheduled_messages(context: ContextTypes.DEFAULT_TYPE):
 def main():
     """বট শুরু করার প্রধান ফাংশন।"""
     application = Application.builder().token(TOKEN).build()
-
+    
+    # JobQueue ইনস্ট্যান্স তৈরি করে Application এর সাথে যুক্ত করা
+    job_queue_instance = application.job_queue
+    
     # কমান্ড হ্যান্ডলার যোগ করা
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("uid", send_all_ids))
@@ -358,7 +361,8 @@ def main():
     application.add_handler(CallbackQueryHandler(delete_message))
     
     # নতুন কোড: ব্যাকগ্রাউন্ডে মেসেজ পাঠানোর টাস্ক শুরু করা
-    application.job_queue.run_repeating(send_scheduled_messages, interval=240, first=120)
+    # এখানে আমরা সরাসরি job_queue_instance ব্যবহার করছি, যা একটি Non-NoneType অবজেক্ট
+    job_queue_instance.run_repeating(send_scheduled_messages, interval=240, first=120)
 
     # বট পোলিং শুরু করা
     application.run_polling(allowed_updates=Update.ALL_TYPES)
@@ -366,4 +370,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-                
+            
