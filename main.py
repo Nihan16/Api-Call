@@ -14,10 +14,10 @@ import asyncio
 import os
 import pyotp
 
-# বট টোকেন সরাসরি এখানে দেওয়া হয়েছে
+# বট টোকেন
 TOKEN = "8465450034:AAGeFOvXRk6Cpfcm1PTW7NVJntyX-tDU7uY"
 
-# নির্দিষ্ট ইউজার আইডি যারা বট ব্যবহার করতে পারবে
+# নির্দিষ্ট ইউজার আইডি
 ALLOWED_USER_IDS = [6945456838, 1607112738]
 
 # ফেসবুক প্রোফাইল লিঙ্ক খুঁজে বের করার জন্য রেগুলার এক্সপ্রেশন
@@ -43,28 +43,22 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
 
-# --- Replit-এর জন্য Keep-Alive লজিক ---
-async def keep_alive(application: Application):
-    """
-    Replit-এর স্লিপ হওয়া রোধ করতে প্রতি ৪ মিনিট পর পর একটি কাজ করে।
-    এটি একটি নির্দিষ্ট আইডি-তে একটি খালি মেসেজ পাঠানোর চেষ্টা করবে।
-    """
-    # যেই আইডি-তে মেসেজ পাঠানো হবে।
-    self_ping_user_id = 1607112738
-
-    while True:
+# Replit-এর জন্য একটি স্বয়ংক্রিয় মেসেজ পাঠানোর ফাংশন
+async def keep_alive(context: ContextTypes.DEFAULT_TYPE):
+    """বটকে সক্রিয় রাখতে একটি মেসেজ পাঠায়।"""
+    # শুধুমাত্র নির্দিষ্ট ইউজার আইডি-দের মধ্যে প্রথম ইউজারকে মেসেজ পাঠাবে
+    if ALLOWED_USER_IDS:
+        target_user_id = ALLOWED_USER_IDS[0]
         try:
-            # Replit-এর ৫ মিনিটের স্লিপ লিমিট থেকে বাঁচতে ৪ মিনিট পর পর
-            # একটি API কল করা হচ্ছে।
-            await asyncio.sleep(4 * 60)
-            await application.bot.send_message(
-                chat_id=self_ping_user_id,
-                text="Replit keep-alive ping. Ignoring this message.",
-                disable_notification=True
+            # একটি ইনভিজিবল মেসেজ বা সাধারণ মেসেজ পাঠানো যায়
+            # এখানে একটি ডামি মেসেজ ব্যবহার করা হয়েছে যা ইউজারকে বিরক্ত করবে না
+            await context.bot.send_message(
+                chat_id=target_user_id,
+                text="."
             )
-            logger.info("Sent keep-alive ping to prevent Replit from sleeping.")
+            logger.info(f"Keep-alive message sent to user {target_user_id}.")
         except Exception as e:
-            logger.error(f"Error during keep-alive ping: {e}")
+            logger.error(f"Failed to send keep-alive message to user {target_user_id}: {e}")
 
 # --- Command Handlers ---
 
@@ -157,10 +151,10 @@ async def clear_chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.delete_message(chat_id=chat_id, message_id=update.message.message_id)
         logger.info(f"Deleted /clear command message {update.message.message_id} from user {user_id}.")
     except Exception as e:
-            logger.warning(f"Could not delete /clear command message {update.message.message_id}: {e}")
+        logger.warning(f"Could not delete /clear command message {update.message.message_id}: {e}")
 
     context.user_data['extracted_ids'] = []
-
+    
     # Facebook ID থেকে মেসেজ আইডি ডিকশনারি খালি করা
     facebook_id_to_message_id.clear()
 
@@ -176,11 +170,11 @@ async def delete_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     user_id = query.from_user.id
     chat_id = query.message.chat_id
     current_message_id = query.message.message_id
-
+    
     # কলব্যাক ডেটা থেকে পূর্ববর্তী মেসেজ আইডির তালিকা পেতে
     message_ids_str = query.data.replace('delete_', '')
     message_ids = [int(mid) for mid in message_ids_str.split(',') if mid.isdigit()]
-
+    
     message_ids.append(current_message_id)
 
     # সব মেসেজ ডিলিট করা
@@ -214,11 +208,11 @@ async def handle_message_with_id_storage(update: Update, context: ContextTypes.D
 
         if id_match:
             extracted_id = id_match.group(1)
-
+            
             if extracted_id in facebook_id_to_message_id:
                 previous_message_ids = facebook_id_to_message_id[extracted_id]
                 response_text = f"এই আইডিটি (`{extracted_id}`) পূর্বে ব্যবহৃত হয়েছে। নিচে তার মেসেজটি দেওয়া হলো:"
-
+                
                 # ইনলাইন বাটন মেসেজটি আগে পাঠানো
                 all_ids_to_delete = previous_message_ids
                 keyboard = [
@@ -250,7 +244,7 @@ async def handle_message_with_id_storage(update: Update, context: ContextTypes.D
                 logger.info(f"Found link for user {user_id}: {found_link}. Stored ID: {extracted_id}.")
                 if response_message:
                     facebook_id_to_message_id[extracted_id].append(response_message.message_id)
-
+        
         if 'response_message' in locals():
             asyncio.create_task(delete_message_after_delay(
                 chat_id=chat_id,
@@ -338,9 +332,8 @@ async def handle_message_with_id_storage(update: Update, context: ContextTypes.D
             ))
             bot_response_message_ids[user_id].append(response_message.message_id)
 
-
-async def main():
-    """বট শুরু করার প্রধান অ্যাসিঙ্ক্রোনাস ফাংশন।"""
+def main():
+    """বট শুরু করার প্রধান ফাংশন।"""
     application = Application.builder().token(TOKEN).build()
 
     # কমান্ড হ্যান্ডলার যোগ করা
@@ -350,16 +343,23 @@ async def main():
 
     # মেসেজ হ্যান্ডলার যোগ করা
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message_with_id_storage))
-
+    
     # ইনলাইন বাটন কলব্যাক হ্যান্ডলার যোগ করা
     application.add_handler(CallbackQueryHandler(delete_message))
 
-    # Replit-কে সক্রিয় রাখার জন্য একটি ব্যাকগ্রাউন্ড টাস্ক চালু করা
-    asyncio.create_task(keep_alive(application))
+    # প্রতি 4 মিনিট 1 সেকেন্ড পর পর keep_alive ফাংশনটি চালু করার জন্য
+    # নির্দিষ্ট সময়ে কাজ করার জন্য job_queue ব্যবহার করা হয়েছে
+    application.job_queue.run_repeating(
+        keep_alive,
+        interval=241,  # 4 মিনিট 1 সেকেন্ড = 241 সেকেন্ড
+        first=5,
+        name="keep_alive"
+    )
 
     # বট পোলিং শুরু করা
-    await application.run_polling(allowed_updates=Update.ALL_TYPES)
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
     logger.info("Bot started polling.")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
+
