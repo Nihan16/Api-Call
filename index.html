@@ -182,7 +182,7 @@
         
         <div class="content">
             <div class="info-box">
-                <p>এই সার্ভিসটি আপনার Telegram Bot API কে প্রতি ৫ মিনিটে একটি request পাঠিয়ে বটটিকে সক্রিয় রাখবে, এমনকি যখন আপনার ব্রাউজার বন্ধ থাকবে।</p>
+                <p>এই সার্ভিসটি আপনার Telegram Bot API কে প্রতি ৫ মিনিটে একটি request পাঠিয়ে বটটিকে সক্রিয় রাখবে। ব্রাউজার ট্যাবটি খোলা রাখুন।</p>
             </div>
             
             <div class="input-group">
@@ -218,7 +218,7 @@
         </div>
         
         <div class="footer">
-            <p>এই সার্ভিসটি Service Worker ব্যবহার করে যা ব্রাউজার বন্ধ থাকলেও কাজ করতে পারে</p>
+            <p>এই পেজটি ট্যাবে খোলা রাখুন যাতে এটি কাজ করতে পারে</p>
         </div>
     </div>
 
@@ -238,17 +238,14 @@
             let nextRequestTime = null;
             
             // Service Worker রেজিস্ট্রেশন
-            if ('serviceWorker' in navigator && 'PushManager' in window) {
-                navigator.serviceWorker.register('sw.js').then(function(registration) {
-                    addLog('Service Worker সফলভাবে রেজিস্টার হয়েছে', 'success');
-                    
-                    // Background sync রেজিস্ট্রেশন
-                    registration.sync.register('bg-ping').catch(function(err) {
-                        addLog('Background Sync রেজিস্ট্রেশনে ত্রুটি: ' + err.message, 'error');
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.register('sw.js')
+                    .then(function(registration) {
+                        addLog('Service Worker সফলভাবে রেজিস্টার হয়েছে', 'success');
+                    })
+                    .catch(function(error) {
+                        addLog('Service Worker রেজিস্ট্রেশনে ত্রুটি: ' + error, 'error');
                     });
-                }).catch(function(error) {
-                    addLog('Service Worker রেজিস্ট্রেশনে ত্রুটি: ' + error, 'error');
-                });
             } else {
                 addLog('Service Worker সাপোর্ট করে না এই ব্রাউজার', 'warning');
             }
@@ -311,6 +308,9 @@
                 logEntry.textContent = message;
                 logContainer.appendChild(logEntry);
                 logContainer.scrollTop = logContainer.scrollHeight;
+                
+                // লগ কনসোলেও প্রিন্ট করুন
+                console.log(message);
             }
             
             // পেজ লোড হলেই স্বয়ংক্রিয়ভাবে শুরু করুন
