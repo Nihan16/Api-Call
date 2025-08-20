@@ -10,19 +10,14 @@ self.addEventListener('install', (event) => {
 
 // Activate event
 self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim());
   console.log('Service Worker activated');
 });
 
 // Background sync event
 self.addEventListener('sync', (event) => {
   if (event.tag === 'bg-ping') {
-    event.waitUntil(doBackgroundPing());
-  }
-});
-
-// Periodic background sync
-self.addEventListener('periodicsync', (event) => {
-  if (event.tag === 'periodic-ping') {
+    console.log('Background sync triggered');
     event.waitUntil(doBackgroundPing());
   }
 });
@@ -41,8 +36,11 @@ async function doBackgroundPing() {
         time: new Date().toLocaleTimeString()
       });
     });
+    
+    return response;
   } catch (error) {
     console.error('Background ping failed:', error);
+    throw error;
   }
 }
 
