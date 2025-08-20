@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telegram Bot Keep Alive</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%);
+            color: #333;
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            width: 100%;
+            max-width: 600px;
+            overflow: hidden;
+        }
+        
+        .header {
+            background: #2575fc;
+            color: white;
+            padding: 25px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            opacity: 0.9;
+        }
+        
+        .content {
+            padding: 25px;
+        }
+        
+        .info-box {
+            background: #f8f9fa;
+            border-left: 4px solid #6a11cb;
+            padding: 15px;
+            margin-bottom: 25px;
+            border-radius: 4px;
+        }
+        
+        .status-container {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .status-card {
+            background: #f1f8ff;
+            border-radius: 8px;
+            padding: 15px;
+            width: 48%;
+            margin-bottom: 15px;
+            text-align: center;
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.08);
+        }
+        
+        .status-card h3 {
+            color: #2575fc;
+            margin-bottom: 8px;
+            font-size: 16px;
+        }
+        
+        .status-card p {
+            font-size: 18px;
+            font-weight: bold;
+        }
+        
+        .input-group {
+            margin-bottom: 20px;
+        }
+        
+        .input-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #444;
+        }
+        
+        .input-group input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        
+        .input-group input:focus {
+            border-color: #2575fc;
+            outline: none;
+        }
+        
+        .btn {
+            background: #6a11cb;
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            width: 100%;
+            transition: background 0.3s;
+            margin-bottom: 15px;
+        }
+        
+        .btn:hover {
+            background: #5a0fb8;
+        }
+        
+        .log-container {
+            background: #2c3e50;
+            color: #ecf0f1;
+            border-radius: 8px;
+            padding: 15px;
+            height: 150px;
+            overflow-y: auto;
+            font-family: monospace;
+            margin-top: 20px;
+        }
+        
+        .log-entry {
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        
+        .success {
+            color: #2ecc71;
+        }
+        
+        .error {
+            color: #e74c3c;
+        }
+        
+        .warning {
+            color: #f39c12;
+        }
+        
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #777;
+            font-size: 14px;
+            border-top: 1px solid #eee;
+        }
+        
+        @media (max-width: 500px) {
+            .status-card {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Telegram Bot Keep Alive</h1>
+            <p>আপনার Render-এ deployed Bot কে সক্রিয় রাখুন</p>
+        </div>
+        
+        <div class="content">
+            <div class="info-box">
+                <p>এই সার্ভিসটি আপনার Telegram Bot API কে প্রতি ৫ মিনিটে একটি request পাঠিয়ে বটটিকে সক্রিয় রাখবে, এমনকি যখন আপনার ব্রাউজার বন্ধ থাকবে।</p>
+            </div>
+            
+            <div class="input-group">
+                <label for="botUrl">আপনার Bot API URL</label>
+                <input type="text" id="botUrl" value="https://api.telegram.org/bot8062990910:AAHOwU-KMmWu6khDxveAzcW67_tupkv6kmg/getMe" readonly />
+            </div>
+            
+            <button id="toggleBtn" class="btn">সার্ভিস শুরু করুন</button>
+            
+            <div class="status-container">
+                <div class="status-card">
+                    <h3>বর্তমান অবস্থা</h3>
+                    <p id="statusText">বন্ধ</p>
+                </div>
+                <div class="status-card">
+                    <h3>পরবর্তী রিকোয়েস্ট</h3>
+                    <p id="nextRequest">--:--:--</p>
+                </div>
+                <div class="status-card">
+                    <h3>সফল রিকোয়েস্ট</h3>
+                    <p id="successCount">0</p>
+                </div>
+                <div class="status-card">
+                    <h3>ব্যর্থ রিকোয়েস্ট</h3>
+                    <p id="errorCount">0</p>
+                </div>
+            </div>
+            
+            <h3>লগ সমূহ:</h3>
+            <div class="log-container" id="logContainer">
+                <div class="log-entry">সিস্টেম প্রস্তুত...</div>
+            </div>
+        </div>
+        
+        <div class="footer">
+            <p>এই সার্ভিসটি Service Worker ব্যবহার করে যা ব্রাউজার বন্ধ থাকলেও কাজ করতে পারে</p>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const botUrlInput = document.getElementById('botUrl');
+            const toggleBtn = document.getElementById('toggleBtn');
+            const statusText = document.getElementById('statusText');
+            const nextRequest = document.getElementById('nextRequest');
+            const successCount = document.getElementById('successCount');
+            const errorCount = document.getElementById('errorCount');
+            const logContainer = document.getElementById('logContainer');
+            
+            let isActive = false;
+            let successCounter = 0;
+            let errorCounter = 0;
+            let nextRequestTime = null;
+            
+            // Service Worker রেজিস্ট্রেশন
+            if ('serviceWorker' in navigator && 'PushManager' in window) {
+                navigator.serviceWorker.register('sw.js').then(function(registration) {
+                    addLog('Service Worker সফলভাবে রেজিস্টার হয়েছে', 'success');
+                    
+                    // Background sync রেজিস্ট্রেশন
+                    registration.sync.register('bg-ping').catch(function(err) {
+                        addLog('Background Sync রেজিস্ট্রেশনে ত্রুটি: ' + err.message, 'error');
+                    });
+                }).catch(function(error) {
+                    addLog('Service Worker রেজিস্ট্রেশনে ত্রুটি: ' + error, 'error');
+                });
+            } else {
+                addLog('Service Worker সাপোর্ট করে না এই ব্রাউজার', 'warning');
+            }
+            
+            toggleBtn.addEventListener('click', function() {
+                isActive = !isActive;
+                
+                if (isActive) {
+                    statusText.textContent = 'চালু';
+                    statusText.style.color = '#2ecc71';
+                    toggleBtn.textContent = 'সার্ভিস বন্ধ করুন';
+                    toggleBtn.style.background = '#e74c3c';
+                    startPinging();
+                    addLog('সার্ভিস শুরু হয়েছে', 'success');
+                } else {
+                    statusText.textContent = 'বন্ধ';
+                    statusText.style.color = '#e74c3c';
+                    toggleBtn.textContent = 'সার্ভিস শুরু করুন';
+                    toggleBtn.style.background = '#6a11cb';
+                    clearTimeout(nextRequestTime);
+                    addLog('সার্ভিস বন্ধ করা হয়েছে', 'warning');
+                }
+            });
+            
+            function startPinging() {
+                if (!isActive) return;
+                
+                const url = botUrlInput.value;
+                
+                fetch(url)
+                    .then(response => {
+                        if (response.ok) {
+                            successCounter++;
+                            successCount.textContent = successCounter;
+                            addLog('রিকোয়েস্ট সফল: ' + new Date().toLocaleTimeString(), 'success');
+                        } else {
+                            throw new Error('HTTP error ' + response.status);
+                        }
+                    })
+                    .catch(error => {
+                        errorCounter++;
+                        errorCount.textContent = errorCounter;
+                        addLog('রিকোয়েস্ট ব্যর্থ: ' + error, 'error');
+                    });
+                
+                // পরবর্তী রিকোয়েস্টের সময় আপডেট করুন
+                const now = new Date();
+                const nextTime = new Date(now.getTime() + 5 * 60000);
+                nextRequest.textContent = nextTime.toLocaleTimeString();
+                
+                // পরবর্তী রিকোয়েস্ট শিডিউল করুন
+                nextRequestTime = setTimeout(startPinging, 5 * 60000);
+                
+                addLog('পরবর্তী রিকোয়েস্ট শিডিউল করা হয়েছে: ' + nextTime.toLocaleTimeString(), 'success');
+            }
+            
+            function addLog(message, type) {
+                const logEntry = document.createElement('div');
+                logEntry.className = 'log-entry ' + type;
+                logEntry.textContent = message;
+                logContainer.appendChild(logEntry);
+                logContainer.scrollTop = logContainer.scrollHeight;
+            }
+            
+            // পেজ লোড হলেই স্বয়ংক্রিয়ভাবে শুরু করুন
+            setTimeout(() => {
+                toggleBtn.click();
+            }, 1000);
+        });
+    </script>
+</body>
+</html>
