@@ -236,18 +236,45 @@
             let successCounter = 0;
             let errorCounter = 0;
             let nextRequestTime = null;
+            let serviceWorkerRegistration = null;
             
             // Service Worker রেজিস্ট্রেশন
             if ('serviceWorker' in navigator) {
                 navigator.serviceWorker.register('sw.js')
                     .then(function(registration) {
+                        serviceWorkerRegistration = registration;
                         addLog('Service Worker সফলভাবে রেজিস্টার হয়েছে', 'success');
+                        
+                        // Service Worker সক্রিয় হওয়ার পর Background Sync রেজিস্ট্রেশন
+                        if (registration.active) {
+                            registerBackgroundSync();
+                        } else {
+                            navigator.serviceWorker.addEventListener('controllerchange', function() {
+                                registerBackgroundSync();
+                            });
+                        }
                     })
                     .catch(function(error) {
                         addLog('Service Worker রেজিস্ট্রেশনে ত্রুটি: ' + error, 'error');
                     });
             } else {
                 addLog('Service Worker সাপোর্ট করে না এই ব্রাউজার', 'warning');
+            }
+            
+            // Background Sync রেজিস্ট্রেশন ফাংশন
+            function registerBackgroundSync() {
+                if (!serviceWorkerRegistration || !serviceWorkerRegistration.sync) {
+                    addLog('Background Sync সাপোর্ট করে না এই ব্রাউজার', 'warning');
+                    return;
+                }
+                
+                serviceWorkerRegistration.sync.register('bg-ping')
+                    .then(() => {
+                        addLog('Background Sync সফলভাবে রেজিস্টার হয়েছে', 'success');
+                    })
+                    .catch(err => {
+                        addLog('Background Sync রেজিস্ট্রেশনে ত্রুটি: ' + err.message, 'error');
+                    });
             }
             
             toggleBtn.addEventListener('click', function() {
